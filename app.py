@@ -11,7 +11,7 @@ client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 # Page Settings
 # =========================
 st.set_page_config(
-    page_title="نبض المشروع AI",
+    page_title="مِعيار",
     page_icon="📊",
     layout="wide"
 )
