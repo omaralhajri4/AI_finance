@@ -11,7 +11,7 @@ client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 # Page Settings
 # =========================
 st.set_page_config(
-    page_title="مِعيار",
+    page_title="معيار",
     page_icon="📊",
     layout="wide"
 )
@@ -19,7 +19,7 @@ st.set_page_config(
 # =========================
 # App Title
 # =========================
-st.title("📊 مِعيار")
+st.title("📊 معيار")
 st.write("منصة ذكية تساعد أصحاب المشاريع الصغيرة على تحليل المبيعات والمصاريف واتخاذ قرارات أفضل.")
 
 st.markdown("---")
@@ -71,7 +71,12 @@ if uploaded_file is not None:
             st.stop()
 
         # Convert numeric columns
-        numeric_columns = ["Quantity", "Selling Price", "Cost Price", "Other Expenses"]
+        numeric_columns = [
+            "Quantity",
+            "Selling Price",
+            "Cost Price",
+            "Other Expenses"
+        ]
 
         for col in numeric_columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -100,9 +105,20 @@ if uploaded_file is not None:
             "Profit": "sum"
         }).reset_index()
 
-        best_selling_product = product_summary.sort_values("Quantity", ascending=False).iloc[0]
-        most_profitable_product = product_summary.sort_values("Profit", ascending=False).iloc[0]
-        weakest_product = product_summary.sort_values("Profit", ascending=True).iloc[0]
+        best_selling_product = product_summary.sort_values(
+            "Quantity",
+            ascending=False
+        ).iloc[0]
+
+        most_profitable_product = product_summary.sort_values(
+            "Profit",
+            ascending=False
+        ).iloc[0]
+
+        weakest_product = product_summary.sort_values(
+            "Profit",
+            ascending=True
+        ).iloc[0]
 
         st.markdown("---")
 
@@ -145,56 +161,67 @@ if uploaded_file is not None:
         # =========================
         # AI Report
         # =========================
-        st.subheader("🤖 تقرير الذكاء الاصطناعي")
+        st.subheader("🤖 تقرير معيار الذكي")
 
         if st.button("حلّل مشروعي"):
             with st.spinner("جاري تحليل بيانات المشروع..."):
 
                 business_data = f"""
-                إجمالي المبيعات: {total_revenue:.3f} ريال عماني
-                إجمالي تكلفة المنتجات: {total_cost:.3f} ريال عماني
-                المصاريف الأخرى: {total_expenses:.3f} ريال عماني
-                صافي الربح: {net_profit:.3f} ريال عماني
+إجمالي المبيعات: {total_revenue:.3f} ريال عماني
+إجمالي تكلفة المنتجات: {total_cost:.3f} ريال عماني
+المصاريف الأخرى: {total_expenses:.3f} ريال عماني
+صافي الربح: {net_profit:.3f} ريال عماني
 
-                أكثر منتج مبيعًا:
-                {best_selling_product["Product"]} بعدد {best_selling_product["Quantity"]} وحدة
+أكثر منتج مبيعًا:
+{best_selling_product["Product"]} بعدد {best_selling_product["Quantity"]} وحدة
 
-                أكثر منتج ربحية:
-                {most_profitable_product["Product"]} بربح {most_profitable_product["Profit"]:.3f} ريال عماني
+أكثر منتج ربحية:
+{most_profitable_product["Product"]} بربح {most_profitable_product["Profit"]:.3f} ريال عماني
 
-                أضعف منتج من ناحية الربح:
-                {weakest_product["Product"]} بربح {weakest_product["Profit"]:.3f} ريال عماني
+أضعف منتج من ناحية الربح:
+{weakest_product["Product"]} بربح {weakest_product["Profit"]:.3f} ريال عماني
 
-                ملخص المنتجات:
-                {product_summary.to_string(index=False)}
-                """
+ملخص المنتجات:
+{product_summary.to_string(index=False)}
+"""
 
                 prompt = f"""
-                أنت مستشار أعمال ذكي متخصص في مساعدة المؤسسات الصغيرة والمتوسطة في سلطنة عمان.
+أنت مستشار أعمال ذكي متخصص في مساعدة المؤسسات الصغيرة والمتوسطة في سلطنة عمان.
 
-                حلل بيانات المشروع التالية واكتب تقريرًا واضحًا باللغة العربية.
+حلل بيانات المشروع التالية واكتب تقريرًا واضحًا باللغة العربية.
 
-                المطلوب في التقرير:
-                1. ملخص بسيط للأداء المالي.
-                2. نقاط القوة في المشروع.
-                3. نقاط الضعف أو المخاطر.
-                4. توصيات عملية لزيادة الربح.
-                5. اقتراح لتحسين التسعير أو تقليل التكاليف.
-                6. اقتراح تسويقي بسيط يناسب السوق العماني.
-                7. اختم بخلاصة قصيرة لصاحب المشروع.
+المطلوب في التقرير:
+1. ملخص بسيط للأداء المالي.
+2. نقاط القوة في المشروع.
+3. نقاط الضعف أو المخاطر.
+4. توصيات عملية لزيادة الربح.
+5. اقتراح لتحسين التسعير أو تقليل التكاليف.
+6. اقتراح تسويقي بسيط يناسب السوق العماني.
+7. اختم بخلاصة قصيرة لصاحب المشروع.
 
-                اجعل الأسلوب بسيطًا ومباشرًا ومناسبًا لصاحب مشروع صغير، وليس بلغة معقدة.
+اجعل الأسلوب بسيطًا ومباشرًا ومناسبًا لصاحب مشروع صغير، وليس بلغة معقدة.
 
-                بيانات المشروع:
-                {business_data}
-                """
+لا تقل إنك نموذج ذكاء اصطناعي. اكتب التقرير كأنه صادر من منصة معيار.
 
-                response = client.responses.create(
-                    model="gpt-4.1-mini",
-                    input=prompt
+بيانات المشروع:
+{business_data}
+"""
+
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "أنت مستشار أعمال لمنصة معيار، تساعد أصحاب المشاريع الصغيرة في سلطنة عمان على فهم بياناتهم واتخاذ قرارات أفضل."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ]
                 )
 
-                ai_report = response.output_text
+                ai_report = response.choices[0].message.content
 
                 st.success("تم إنشاء التقرير بنجاح")
                 st.write(ai_report)
@@ -202,7 +229,7 @@ if uploaded_file is not None:
                 st.download_button(
                     label="تحميل التقرير",
                     data=ai_report,
-                    file_name="ai_business_report.txt",
+                    file_name="mi3yar_business_report.txt",
                     mime="text/plain"
                 )
 
