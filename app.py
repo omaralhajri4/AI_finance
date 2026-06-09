@@ -3,11 +3,9 @@ import pandas as pd
 import json
 import os
 from datetime import datetime
-from io import BytesIO
 from openai import OpenAI
 import plotly.express as px
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
+from supabase import create_client
 
 
 # =========================
@@ -30,16 +28,21 @@ except Exception:
 
 
 # =========================
-# Simple Login Users
+# Supabase Client
 # =========================
-USERS = {
-    "omar": "1234",
-    "admin": "admin123"
-}
+try:
+    supabase = create_client(
+        st.secrets["SUPABASE_URL"],
+        st.secrets["SUPABASE_KEY"]
+    )
+except Exception:
+    supabase = None
 
 
 # =========================
-# Save Reports File
+# Saved Reports Local File
+# ملاحظة: هذا حفظ مؤقت داخل Streamlit.
+# لاحقًا الأفضل نحفظ التقارير داخل Supabase Database.
 # =========================
 REPORTS_FILE = "saved_reports.json"
 
@@ -60,7 +63,7 @@ def save_report(report_data):
 
 
 # =========================
-# CSS
+# Styling
 # =========================
 st.markdown("""
 <style>
@@ -85,36 +88,260 @@ st.markdown("""
 
 
 # =========================
-# Helpers
+# Supabase Auth Functions
 # =========================
-def normalize_columns(df):
+def login_user(email, password):
+    if supabase is None:
+        return False, "Supabase غير متصل. تأكد من إضافة SUPABASE_URL و SUPABASE_KEY في Streamlit Secrets."
+
+    try:
+        response = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
+
+        if response.user is not None:
+            st.session_state.logged_in = True
+            st.session_state.user_email = response.user.email
+            st.session_state.user_id = response.user.id
+
+            if response.session is not None:
+                st.session_state.access_token = response.session.access_token
+
+            return True, "تم تسجيل الدخول بنجاح"
+
+        return False, "بيانات الدخول غير صحيحة"
+
+    except Exception as e:
+        return False, f"تعذر تسجيل الدخول: {e}"
+
+
+def signup_user(email, password):
+    if supabase is None:
+        return False, "Supabase غير متصل. تأكد من إضافة SUPABASE_URL و SUPABASE_KEY في Streamlit Secrets."
+
+    try:
+        response = supabase.auth.sign_up({
+            "email": email,
+            "password": password
+        })
+
+        if response.user is not None:
+            return True, "تم إنشاء الحساب. إذا كان تأكيد الإيميل مفعلًا في Supabase، افتح بريدك واضغط رابط التأكيد قبل تسجيل الدخول."
+
+        return False, "لم يتم إنشاء الحساب."
+
+    except Exception as e:
+        return False, f"تعذر إنشاء الحساب: {e}"
+
+
+def logout_user():
+    try:
+        if supabase is not None:
+            supabase.auth.sign_out()
+    except Exception:
+        pass
+
+    st.session_state.logged_in = False
+    st.session_state.user_email = ""
+    st.session_state.user_id = ""
+    st.session_state.access_token = ""
+    st.rerun()
+
+
+# =========================
+# Basic Column Mapping
+# =========================
+def normalize_columns_basic(df):
     column_mapping = {
         "التاريخ": "Date",
         "تاريخ": "Date",
+        "تاريخ البيع": "Date",
+        "تاريخ الفاتورة": "Date",
         "اليوم": "Date",
 
         "المنتج": "Product",
         "اسم المنتج": "Product",
         "الصنف": "Product",
+        "اسم الصنف": "Product",
+        "الوصف": "Product",
+        "البيان": "Product",
 
         "الكمية": "Quantity",
         "عدد": "Quantity",
+        "العدد": "Quantity",
+        "العدد المباع": "Quantity",
+        "الكمية المباعة": "Quantity",
 
         "سعر البيع": "Selling Price",
         "السعر": "Selling Price",
+        "سعر الوحدة": "Selling Price",
+        "قيمة البيع": "Selling Price",
 
         "تكلفة المنتج": "Cost Price",
         "سعر التكلفة": "Cost Price",
         "التكلفة": "Cost Price",
+        "تكلفة الشراء": "Cost Price",
 
         "المصاريف": "Other Expenses",
         "مصاريف أخرى": "Other Expenses",
-        "المصاريف الأخرى": "Other Expenses"
+        "المصاريف الأخرى": "Other Expenses",
+        "تكاليف إضافية": "Other Expenses",
+
+        "Item": "Product",
+        "Item Name": "Product",
+        "Product": "Product",
+        "Product Name": "Product",
+        "Description": "Product",
+
+        "Qty": "Quantity",
+        "Quantity": "Quantity",
+        "Sold Qty": "Quantity",
+        "Units Sold": "Quantity",
+
+        "Price": "Selling Price",
+        "Unit Price": "Selling Price",
+        "Sales Price": "Selling Price",
+        "Selling Price": "Selling Price",
+
+        "Cost": "Cost Price",
+        "Unit Cost": "Cost Price",
+        "Purchase Cost": "Cost Price",
+        "Cost Price": "Cost Price",
+
+        "Expenses": "Other Expenses",
+        "Extra Cost": "Other Expenses",
+        "Other Cost": "Other Expenses",
+        "Other Expenses": "Other Expenses",
+
+        "Date": "Date",
+        "Sale Date": "Date",
+        "Invoice Date": "Date"
     }
 
     return df.rename(columns=column_mapping)
 
 
+# =========================
+# AI Column Detection
+# =========================
+def detect_columns_with_ai(df):
+    """
+    AI يفهم عناوين الجدول ويرجع mapping.
+    الحسابات نفسها تتم لاحقًا بـ Python.
+    """
+
+    if client is None:
+        return {}
+
+    sample_df = df.head(5).copy()
+    columns = list(df.columns)
+    sample_rows = sample_df.to_dict(orient="records")
+
+    prompt = f"""
+أنت مساعد متخصص في فهم جداول المبيعات للمؤسسات الصغيرة.
+
+لدي جدول مرفوع من صاحب مشروع. أريدك أن تحدد أي عمود يمثل كل خانة من الخانات القياسية المطلوبة.
+
+الخانات القياسية المطلوبة:
+- Date
+- Product
+- Quantity
+- Selling Price
+- Cost Price
+- Other Expenses
+
+أسماء الأعمدة الموجودة في الملف:
+{columns}
+
+أول 5 صفوف من الجدول:
+{sample_rows}
+
+المطلوب:
+أرجع JSON فقط بدون أي شرح.
+
+صيغة الرد:
+{{
+  "Date": "اسم العمود المناسب أو null",
+  "Product": "اسم العمود المناسب أو null",
+  "Quantity": "اسم العمود المناسب أو null",
+  "Selling Price": "اسم العمود المناسب أو null",
+  "Cost Price": "اسم العمود المناسب أو null",
+  "Other Expenses": "اسم العمود المناسب أو null"
+}}
+
+قواعد مهمة:
+- إذا لم تجد عمودًا مناسبًا، ضع null.
+- لا تختر عمودًا إلا إذا كان واضحًا من الاسم أو البيانات.
+- لا تكتب أي نص خارج JSON.
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "أنت مساعد يفهم جداول المبيعات ويرجع JSON فقط."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0
+        )
+
+        content = response.choices[0].message.content.strip()
+        content = content.replace("json", "").replace("", "").strip()
+
+        mapping = json.loads(content)
+
+        clean_mapping = {}
+
+        for standard_col, original_col in mapping.items():
+            if original_col is not None and original_col in df.columns:
+                clean_mapping[original_col] = standard_col
+
+        return clean_mapping
+
+    except Exception:
+        return {}
+
+
+def normalize_columns_with_ai(df):
+    required_columns = [
+        "Date",
+        "Product",
+        "Quantity",
+        "Selling Price",
+        "Cost Price",
+        "Other Expenses"
+    ]
+
+    df_basic = normalize_columns_basic(df.copy())
+
+    missing_after_basic = [
+        col for col in required_columns
+        if col not in df_basic.columns
+    ]
+
+    if not missing_after_basic:
+        return df_basic, "تم التعرف على الأعمدة تلقائيًا باستخدام القواعد الأساسية."
+
+    ai_mapping = detect_columns_with_ai(df)
+
+    if ai_mapping:
+        df_ai = df.rename(columns=ai_mapping)
+        df_ai = normalize_columns_basic(df_ai)
+        return df_ai, "تم التعرف على بعض أو كل الأعمدة باستخدام الذكاء الاصطناعي."
+
+    return df_basic, "لم يتمكن النظام من التعرف على كل الأعمدة. قد تحتاج لتعديل أسماء الأعمدة."
+
+
+# =========================
+# Fallback Report
+# =========================
 def generate_fallback_report(
     business_name,
     business_type,
@@ -170,50 +397,25 @@ def generate_fallback_report(
 """
 
 
-def create_pdf(report_text):
-    buffer = BytesIO()
-    pdf = canvas.Canvas(buffer, pagesize=A4)
-    width, height = A4
-
-    pdf.setTitle("Mi3yar Report")
-    pdf.setFont("Helvetica-Bold", 16)
-    pdf.drawString(50, height - 50, "Mi3yar Business Report")
-
-    pdf.setFont("Helvetica", 10)
-
-    y = height - 90
-
-    # ملاحظة: PDF هنا يدعم النص الإنجليزي بشكل أفضل.
-    # التقرير العربي محفوظ بشكل ممتاز في TXT داخل التطبيق.
-    clean_text = report_text.replace("#", "").replace("*", "")
-
-    lines = clean_text.split("\n")
-
-    for line in lines:
-        if y < 50:
-            pdf.showPage()
-            pdf.setFont("Helvetica", 10)
-            y = height - 50
-
-        safe_line = line.encode("latin-1", "ignore").decode("latin-1")
-        pdf.drawString(50, y, safe_line[:100])
-        y -= 15
-
-    pdf.save()
-    buffer.seek(0)
-    return buffer
-
-
 # =========================
-# Login
+# Session State
 # =========================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
-if "username" not in st.session_state:
-    st.session_state.username = ""
+if "user_email" not in st.session_state:
+    st.session_state.user_email = ""
+
+if "user_id" not in st.session_state:
+    st.session_state.user_id = ""
+
+if "access_token" not in st.session_state:
+    st.session_state.access_token = ""
 
 
+# =========================
+# Login / Signup Page
+# =========================
 if not st.session_state.logged_in:
     st.markdown('<div class="big-title">معيار</div>', unsafe_allow_html=True)
     st.markdown(
@@ -223,20 +425,48 @@ if not st.session_state.logged_in:
 
     st.markdown("---")
 
-    st.subheader("تسجيل الدخول")
+    tab1, tab2 = st.tabs(["تسجيل الدخول", "إنشاء حساب"])
 
-    username = st.text_input("اسم المستخدم")
-    password = st.text_input("كلمة المرور", type="password")
+    with tab1:
+        st.subheader("تسجيل الدخول")
 
-    if st.button("دخول"):
-        if username in USERS and USERS[username] == password:
-            st.session_state.logged_in = True
-            st.session_state.username = username
-            st.rerun()
-        else:
-            st.error("بيانات الدخول غير صحيحة")
+        email = st.text_input("البريد الإلكتروني", key="login_email")
+        password = st.text_input("كلمة المرور", type="password", key="login_password")
 
-    st.info("للتجربة: username = omar ، password = 1234")
+        if st.button("دخول"):
+            if not email or not password:
+                st.error("اكتب البريد الإلكتروني وكلمة المرور.")
+            else:
+                success, message = login_user(email, password)
+
+                if success:
+                    st.success(message)
+                    st.rerun()
+                else:
+                    st.error(message)
+
+    with tab2:
+        st.subheader("إنشاء حساب جديد")
+
+        new_email = st.text_input("البريد الإلكتروني", key="signup_email")
+        new_password = st.text_input("كلمة المرور", type="password", key="signup_password")
+        confirm_password = st.text_input("تأكيد كلمة المرور", type="password", key="confirm_password")
+
+        if st.button("إنشاء الحساب"):
+            if not new_email or not new_password:
+                st.error("اكتب البريد الإلكتروني وكلمة المرور.")
+            elif new_password != confirm_password:
+                st.error("كلمتا المرور غير متطابقتين.")
+            elif len(new_password) < 6:
+                st.error("كلمة المرور يجب أن تكون 6 أحرف على الأقل.")
+            else:
+                success, message = signup_user(new_email, new_password)
+
+                if success:
+                    st.success(message)
+                else:
+                    st.error(message)
+
     st.stop()
 
 
@@ -244,7 +474,7 @@ if not st.session_state.logged_in:
 # Sidebar
 # =========================
 st.sidebar.title("📊 معيار")
-st.sidebar.write(f"مرحبًا، {st.session_state.username}")
+st.sidebar.write(f"مرحبًا، {st.session_state.user_email}")
 
 page = st.sidebar.radio(
     "القائمة",
@@ -252,9 +482,7 @@ page = st.sidebar.radio(
 )
 
 if st.sidebar.button("تسجيل الخروج"):
-    st.session_state.logged_in = False
-    st.session_state.username = ""
-    st.rerun()
+    logout_user()
 
 
 # =========================
@@ -276,12 +504,12 @@ if page == "الرئيسية":
         st.write("يعرض المبيعات، التكاليف، الأرباح، وهامش الربح.")
 
     with col2:
-        st.subheader("📈 رسوم وتحليل")
-        st.write("يوضح أداء المنتجات والأيام الأفضل للمبيعات.")
+        st.subheader("🧠 فهم ذكي للجداول")
+        st.write("يتعرف على خانات الجدول حتى لو كانت بأسماء مختلفة.")
 
     with col3:
-        st.subheader("🧾 تقارير ذكية")
-        st.write("ينشئ تقريرًا عمليًا يساعدك في التسعير والمخزون والتسويق.")
+        st.subheader("🧾 تقارير عملية")
+        st.write("ينشئ تقريرًا يساعدك في التسعير، المخزون، والتسويق.")
 
     st.markdown("---")
     st.success("ابدأ من صفحة تحليل البيانات.")
@@ -294,7 +522,7 @@ elif page == "تحليل البيانات":
 
     st.title("📊 تحليل بيانات المشروع")
 
-    st.write("ارفع ملف Excel يحتوي على بيانات المبيعات والمصاريف، وسيقوم معيار بتحليل الأداء.")
+    st.write("ارفع ملف Excel يحتوي على بيانات المبيعات، وسيحاول معيار فهم الخانات وتحليل الأداء.")
 
     st.markdown("---")
 
@@ -334,13 +562,16 @@ elif page == "تحليل البيانات":
     st.subheader("📁 ارفع ملف المبيعات")
 
     st.write("""
-الملف يجب أن يحتوي على الأعمدة التالية بالإنجليزي:
+يفضل أن يحتوي الملف على خانات مثل:
 
-Date, Product, Quantity, Selling Price, Cost Price, Other Expenses
+- التاريخ / Date
+- المنتج / Product
+- الكمية / Quantity
+- سعر البيع / Selling Price
+- تكلفة المنتج / Cost Price
+- المصاريف / Other Expenses
 
-أو بالعربي:
-
-التاريخ, المنتج, الكمية, سعر البيع, تكلفة المنتج, المصاريف
+إذا كانت أسماء الأعمدة مختلفة، سيحاول معيار فهمها تلقائيًا.
 """)
 
     uploaded_file = st.file_uploader(
@@ -359,13 +590,26 @@ Date, Product, Quantity, Selling Price, Cost Price, Other Expenses
 
     if uploaded_file is not None:
         try:
-            df = pd.read_excel(uploaded_file)
-            df = normalize_columns(df)
+            original_df = pd.read_excel(uploaded_file)
 
-            missing_columns = [col for col in required_columns if col not in df.columns]
+            st.subheader("📄 الجدول الأصلي")
+            st.dataframe(original_df, use_container_width=True)
+
+            df, detection_message = normalize_columns_with_ai(original_df)
+
+            st.info(detection_message)
+
+            st.subheader("✅ الجدول بعد فهم الخانات")
+            st.dataframe(df, use_container_width=True)
+
+            missing_columns = [
+                col for col in required_columns
+                if col not in df.columns
+            ]
 
             if missing_columns:
-                st.error(f"الملف ناقص الأعمدة التالية: {missing_columns}")
+                st.error(f"ما زالت هذه الخانات ناقصة: {missing_columns}")
+                st.warning("عدّل أسماء الأعمدة في الملف أو أضف الخانات الناقصة ثم ارفع الملف مرة ثانية.")
                 st.stop()
 
             df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
@@ -383,7 +627,7 @@ Date, Product, Quantity, Selling Price, Cost Price, Other Expenses
             df = df.dropna(subset=["Date"] + numeric_columns)
 
             if df.empty:
-                st.error("لا توجد بيانات صالحة للتحليل.")
+                st.error("لا توجد بيانات صالحة للتحليل بعد تنظيف الملف.")
                 st.stop()
 
             df["Revenue"] = df["Quantity"] * df["Selling Price"]
@@ -419,11 +663,6 @@ Date, Product, Quantity, Selling Price, Cost Price, Other Expenses
             most_profitable_product = product_summary.sort_values("Profit", ascending=False).iloc[0]
             weakest_product = product_summary.sort_values("Profit", ascending=True).iloc[0]
             best_day = daily_summary.sort_values("Revenue", ascending=False).iloc[0]
-
-            st.markdown("---")
-
-            st.subheader("👀 معاينة البيانات")
-            st.dataframe(df, use_container_width=True)
 
             st.markdown("---")
 
@@ -592,14 +831,15 @@ Date, Product, Quantity, Selling Price, Cost Price, Other Expenses
                 st.markdown(ai_report)
 
                 report_data = {
-                    "username": st.session_state.username,
+                    "user_id": st.session_state.user_id,
+                    "user_email": st.session_state.user_email,
                     "business_name": business_name,
                     "business_type": business_type,
                     "governorate": governorate,
                     "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "total_revenue": round(total_revenue, 3),
-                    "net_profit": round(net_profit, 3),
-                    "profit_margin": round(profit_margin, 2),
+                    "total_revenue": round(float(total_revenue), 3),
+                    "net_profit": round(float(net_profit), 3),
+                    "profit_margin": round(float(profit_margin), 2),
                     "report": ai_report
                 }
 
@@ -610,15 +850,6 @@ Date, Product, Quantity, Selling Price, Cost Price, Other Expenses
                     data=ai_report,
                     file_name="mi3yar_report.txt",
                     mime="text/plain"
-                )
-
-                pdf_file = create_pdf(ai_report)
-
-                st.download_button(
-                    label="تحميل التقرير PDF",
-                    data=pdf_file,
-                    file_name="mi3yar_report.pdf",
-                    mime="application/pdf"
                 )
 
         except Exception as e:
@@ -640,7 +871,7 @@ elif page == "التقارير المحفوظة":
 
     user_reports = [
         report for report in reports
-        if report.get("username") == st.session_state.username
+        if report.get("user_id") == st.session_state.user_id
     ]
 
     if not user_reports:
@@ -674,13 +905,14 @@ elif page == "عن معيار":
     st.subheader("مميزات معيار")
 
     st.write("""
+- تسجيل دخول حقيقي بالإيميل وكلمة المرور.
 - دعم ملفات Excel بالعربية والإنجليزية.
+- فهم ذكي لأسماء الأعمدة حتى لو كانت مختلفة.
 - تحليل المبيعات والتكاليف والأرباح.
 - حساب هامش الربح.
 - تحليل حسب المنتجات.
 - تحليل حسب الأيام.
 - رسوم بيانية واضحة.
 - تقرير ذكي قابل للتحميل.
-- حفظ التقارير السابقة.
-- تسجيل دخول بسيط للنسخة التجريبية.
+- حفظ التقارير حسب المستخدم.
 """)
