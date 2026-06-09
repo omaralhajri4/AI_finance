@@ -35,8 +35,9 @@ try:
         st.secrets["SUPABASE_URL"],
         st.secrets["SUPABASE_KEY"]
     )
-except Exception:
+except Exception as e:
     supabase = None
+    st.error(f"Supabase connection error: {e}")
 
 
 # =========================
